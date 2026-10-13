@@ -35,6 +35,60 @@ Run the final timed run on one machine, plugged in, with other apps closed.
 One stage on its own: `python run_all.py --only plots`.
 One method on one dataset: `python -m scripts.run_bench --dataset sift --method hnsw`.
 
+## Run one method at a time
+
+`run_all.py` can take many hours. Everything is resumable and results are appended to
+`results/<ds>.csv`, so you can run the pieces separately, in any order, and stop with Ctrl+C
+at any time. Datasets: `sift`, `yahoo`, `coco`, `agnews`. Methods: `flat`, `lsh`, `ivfpq`,
+`hnsw`, `ivfrabitq`.
+
+**Step 1. Prepare one dataset (once per dataset).** Each of these accepts dataset names,
+so you can start with the smallest, SIFT (~500 MB), instead of downloading all ~5 GB:
+
+```bash
+python -m scripts.download sift
+python -m scripts.prepare sift
+python -m scripts.ground_truth sift
+```
+
+Without a name, each command processes every dataset. If you see
+`data/<ds>/meta.json missing`, this step has not been run for that dataset.
+
+**Step 2. Run one method on that dataset:**
+
+```bash
+python -m scripts.run_bench --dataset sift --method flat
+python -m scripts.run_bench --dataset sift --method lsh
+python -m scripts.run_bench --dataset sift --method ivfrabitq
+python -m scripts.run_bench --dataset sift --method ivfpq
+python -m scripts.run_bench --dataset sift --method hnsw       # slowest
+```
+
+For COCO, which has two query sets, add `--queries i2i` or `--queries t2i` to run just one
+(by default both run):
+
+```bash
+python -m scripts.run_bench --dataset coco --queries t2i --method ivfpq
+```
+
+**Step 3. Repeat for the other datasets** (`yahoo`, `coco`, `agnews`): run step 1 with the
+new name, then step 2.
+
+**Step 4. Extra experiments**, each of which can also be run on its own once the
+datasets they need are prepared (ablations default to `sift` and `yahoo`):
+
+```bash
+python -m scripts.ablations sift
+python -m scripts.ood_study
+python -m scripts.failure_cases
+python -m scripts.lecture_check
+python -m scripts.scaling
+python -m scripts.make_plots       # works on whatever is in results/
+```
+
+Tips: run timed benchmarks one at a time with other apps closed, because latency is measured.
+`python -m scripts.run_bench --all` runs every dataset, query set and method in one process.
+
 ## Notes
 
 - Settings and grids live only in `config.py`.
