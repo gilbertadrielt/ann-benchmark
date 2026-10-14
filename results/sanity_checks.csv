@@ -1,0 +1,3 @@
+dataset,query_set,check,value,pass,note
+agnews,main,self-match at distance 0,0.0003662109375,True,
+agnews,main,queries with a tie at rank 10/11,13.0,True,

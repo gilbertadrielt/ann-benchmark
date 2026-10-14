@@ -1,0 +1,2 @@
+dataset,label,query_set,n_db,dim,n_queries,metric,raw_size_mb,subsampled,rc10_median,rc10_q25,rc10_q75
+agnews,AG News-mxbai-1024,main,400000,1024,1000,l2,1638,True,1.519380807876587,1.428494930267334,1.6462807655334473
