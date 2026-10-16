@@ -7,6 +7,7 @@ Writes:
   results/failure/summary.csv               chosen config, mean recall, Spearman rho(recall, RC10)
   results/failure/worst_queries.csv         10 worst queries per dataset with RC10 and every method's recall
   results/failure/overlap.csv               Jaccard overlap of the 50 worst queries between methods
+  results/failure/agreement.csv             share of queries failing (recall < 0.5) in every method vs in at least one
 
     python -m scripts.failure_cases
 """
@@ -30,7 +31,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     df = io.load_results()
     df = df[df.experiment == "main"]
-    summary, worst, overlap = [], [], []
+    summary, worst, overlap, agreement = [], [], [], []
     for ds, qs in config.TARGETS:
         if not data.has_gt(ds, qs):
             continue
@@ -56,14 +57,22 @@ def main():
             np.save(out / f"{ds}_{qs}_{m}.npy", hits)
             per[m] = hits
             rho = spearmanr(hits, rc).statistic if hits.std() > 0 else float("nan")
+            hard, easy = rc <= np.percentile(rc, 10), rc >= np.percentile(rc, 90)
             summary.append({"dataset": ds, "query_set": qs, "method": m, "build_params": row.build_params,
                             "search_params": row.search_params, "mean_recall10": float(hits.mean()),
-                            "share_below_0.5": float((hits < 0.5).mean()), "spearman_rho_rc10": float(rho)})
+                            "share_below_0.5": float((hits < 0.5).mean()), "spearman_rho_rc10": float(rho),
+                            "recall_hardest_10pct_rc10": float(hits[hard].mean()),
+                            "recall_easiest_10pct_rc10": float(hits[easy].mean())})
             print(f"[failure_cases] {ds}/{qs} {m}: recall {hits.mean():.3f}, rho(recall, RC10) = {rho:.2f}")
             del index
         if not per:
             continue
         mean_hits = np.mean(list(per.values()), axis=0)
+        fails = np.array([h < 0.5 for h in per.values()])
+        agreement.append({"dataset": ds, "query_set": qs, "n_methods": len(per),
+                          "share_failing_all": float(fails.all(0).mean()),
+                          "share_failing_any": float(fails.any(0).mean()),
+                          "median_rc10": float(np.median(rc))})
         for qi in np.argsort(mean_hits)[:10]:
             worst.append({"dataset": ds, "query_set": qs, "query": int(qi), "rc10": float(rc[qi]),
                           **{f"recall_{m}": float(per[m][qi]) for m in per}})
@@ -75,6 +84,7 @@ def main():
     pd.DataFrame(summary).to_csv(out / "summary.csv", index=False)
     pd.DataFrame(worst).to_csv(out / "worst_queries.csv", index=False)
     pd.DataFrame(overlap).to_csv(out / "overlap.csv", index=False)
+    pd.DataFrame(agreement).to_csv(out / "agreement.csv", index=False)
 
 
 if __name__ == "__main__":

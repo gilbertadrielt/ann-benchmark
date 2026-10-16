@@ -50,14 +50,32 @@ def commands(stage, cfg):
     raise ValueError(stage)
 
 
+def pin_cpus(spec):
+    """Restrict this process to the given logical CPUs; the stages it starts inherit the restriction."""
+    cpus = []
+    for part in spec.split(","):
+        lo, _, hi = part.partition("-")
+        cpus += list(range(int(lo), int(hi or lo) + 1))
+    try:
+        import psutil
+        psutil.Process().cpu_affinity(cpus)
+        print(f"Pinned to logical CPUs {cpus}")
+    except (AttributeError, NotImplementedError):
+        print("WARNING: --cpus is not supported on this OS (macOS has no CPU affinity); running unpinned")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--smoke", action="store_true", help="synthetic data in ./smoke, tiny grids")
     ap.add_argument("--from", dest="start", choices=STAGES, help="start at this stage")
     ap.add_argument("--only", nargs="+", choices=STAGES, help="run only these stages")
+    ap.add_argument("--cpus", help="pin this run (and every stage it starts) to these logical CPUs, "
+                                   "e.g. 0-11 for the P-cores of a 6P+8E Intel chip (Windows and Linux only)")
     a = ap.parse_args()
     if a.smoke:
         os.environ["ANN_SMOKE"] = "1"
+    if a.cpus:
+        pin_cpus(a.cpus)
     sys.path.insert(0, str(ROOT))
     import config as cfg
 

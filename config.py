@@ -163,7 +163,14 @@ def search_sweeps(method, bp):
 
 
 # ---------------------------------------------------------------- extra experiments
-ABLATION_DATASETS = ["sift", "yahoo"]                      # new runs for A2 and A4
+ABLATION_DATASETS = ["sift", "yahoo", "coco"]              # new runs for A2 and A4 (COCO uses image queries)
+PRIMARY_QS = {"coco": "i2i"}                               # query set used when a dataset has several
+
+
+def primary_qs(ds):
+    return PRIMARY_QS.get(ds, "main")
+
+
 A2_QUERIES = 100 if SMOKE else 1000                        # exhaustive PQ is slow on 1M vectors
 A4_QBS = [0, 1, 4, 8]                                     # qb = 0: full-precision query
 A4_KFACTORS = [1, 4]
@@ -178,8 +185,9 @@ E7_NPROBE = 16 if SMOKE else 48
 E7_LSH_BITS = [4, 8, 16, 32, 64, 96, 128]
 E8_SIZES = [2_500, 5_000, 10_000, 20_000] if SMOKE else [100_000, 250_000, 500_000, 1_000_000]
 E8_QUERIES = 100 if SMOKE else 1000
-E8_SPECS = {"pq": {"M": 32}, "ivfpq": {"nlist": SMALL_NLIST, "M": 32},
-            "ivfrabitq": {"nlist": SMALL_NLIST, "bits": 1}}
+E8_SPECS = {"flat": {}, "pq": {"M": 32}, "ivfpq": {"nlist": SMALL_NLIST, "M": 32},
+            "ivfrabitq": {"nlist": SMALL_NLIST, "bits": 1},
+            "hnsw": {"M": 16, "efC": 40 if SMOKE else 200}}
 
 # ---------------------------------------------------------------- synthetic data for --smoke
 SMOKE_SIZES = {"sift": (20_000, 600), "yahoo": (15_000, 600), "coco": (8_000, 900), "agnews": (12_000, 600)}

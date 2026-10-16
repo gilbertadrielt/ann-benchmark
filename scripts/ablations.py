@@ -8,7 +8,7 @@ A4  IVF-RaBitQ with 1-bit vs 4-bit codes and query bits qb in {0, 1, 4, 8}
 
 Rows go to results/<ds>.csv with experiment = "A2" or "A4".
 
-    python -m scripts.ablations [datasets...]      # default: sift yahoo
+    python -m scripts.ablations [datasets...]      # default: sift yahoo coco
 """
 import sys
 
@@ -27,20 +27,21 @@ def a4_sweeps(method, bp):
 
 
 def run(ds):
+    qs = config.primary_qs(ds)                       # "main", or "i2i" for COCO
     xb, xt = data.load_db(ds), data.load_train(ds)
     log = io.results_csv(ds)
     n = config.A2_QUERIES
-    xq = data.load_queries(ds, "main", n)
-    gt_I, gt_D = data.load_gt(ds, "main", n)
-    print(f"[ablations] {ds} A2: PQ ADC vs SDC on {len(xq)} queries", flush=True)
-    bench.run("A2", ds, "main", "pq", [{"M": m} for m in config.PQ_MS], a2_sweeps,
+    xq = data.load_queries(ds, qs, n)
+    gt_I, gt_D = data.load_gt(ds, qs, n)
+    print(f"[ablations] {ds}/{qs} A2: PQ ADC vs SDC on {len(xq)} queries", flush=True)
+    bench.run("A2", ds, qs, "pq", [{"M": m} for m in config.PQ_MS], a2_sweeps,
               xb, xt, xq, gt_I, gt_D, log, early_stop=False)
 
     n = config.A4_QUERIES
-    xq = data.load_queries(ds, "main", n)
-    gt_I, gt_D = data.load_gt(ds, "main", n)
-    print(f"[ablations] {ds} A4: RaBitQ bits x query bits on {len(xq)} queries", flush=True)
-    bench.run("A4", ds, "main", "ivfrabitq", [{"nlist": config.SMALL_NLIST, "bits": b} for b in (1, 4)],
+    xq = data.load_queries(ds, qs, n)
+    gt_I, gt_D = data.load_gt(ds, qs, n)
+    print(f"[ablations] {ds}/{qs} A4: RaBitQ bits x query bits on {len(xq)} queries", flush=True)
+    bench.run("A4", ds, qs, "ivfrabitq", [{"nlist": config.SMALL_NLIST, "bits": b} for b in (1, 4)],
               a4_sweeps, xb, xt, xq, gt_I, gt_D, log)
 
 

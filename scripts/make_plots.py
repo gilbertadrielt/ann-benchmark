@@ -99,11 +99,11 @@ def panel_nlist(ds):
 
 
 def bp_is(df, **kw):
-    return df[df.bp.map(lambda p: all(p.get(k) == v for k, v in kw.items()))]
+    return df[df.bp.map(lambda p: all(p.get(k) == v for k, v in kw.items())).astype(bool)]
 
 
 def sp_is(df, **kw):
-    return df[df.sp.map(lambda p: all(p.get(k) == v for k, v in kw.items()))]
+    return df[df.sp.map(lambda p: all(p.get(k) == v for k, v in kw.items())).astype(bool)]
 
 
 def frontier_axes(ax, df, title, linestyle="-", label_suffix="", legend=True):
@@ -201,7 +201,7 @@ def t3(df):
 def t4(df):
     out = []
     for ds in config.ABLATION_DATASETS:
-        main = main_rows(df, ds, "main")
+        main = main_rows(df, ds, config.primary_qs(ds))
         lsh = sp_is(main[main.method == "lsh"], k_factor=1)
         for (nb, tt), g in lsh.groupby([lsh.bp.map(lambda p: p["nbits"]), lsh.bp.map(lambda p: p["train_thresholds"])]):
             out.append({"ablation": "A1 LSH thresholds", "dataset": ds, "setting": f"nbits={nb}, train_thresholds={tt}",
@@ -210,22 +210,32 @@ def t4(df):
         for _, r in a2.iterrows():
             out.append({"ablation": "A2 PQ ADC vs SDC", "dataset": ds,
                         "setting": f"M={r.bp['M']}, {'SDC' if r.sp['sdc'] else 'ADC'}", "recall10": r.recall10, "qps": r.qps})
-        for m in ("ivfpq", "ivfrabitq"):
-            s = bp_is(main[main.method == m], nlist=panel_nlist(ds))
+        # A3: one build per method (the equal-bytes IVF-PQ and 1-bit RaBitQ), nprobe nearest 16, k_factor varied
+        for m, extra in (("ivfpq", {"M": config.EQUAL_BYTES[ds][1]}), ("ivfrabitq", {"bits": 1})):
+            s = bp_is(main[main.method == m], nlist=panel_nlist(ds), **extra)
+            if s.empty:
+                continue
+            npr = int(min(s.sp.map(lambda p: p["nprobe"]).unique(), key=lambda v: abs(v - 16)))
+            s = sp_is(s, nprobe=npr)
+            name = f"{LBL[m]} " + (f"M={extra['M']}" if m == "ivfpq" else "1-bit")
             for kf, g in s.groupby(s.sp.map(lambda p: p["k_factor"])):
-                out.append({"ablation": "A3 re-ranking", "dataset": ds, "setting": f"{LBL[m]}, k_factor={kf}",
-                            "recall10": g.recall10.max(), "qps": g[g.recall10 == g.recall10.max()].qps.max(),
-                            "bytes_per_vec": g.bytes_per_vec.iloc[0] if kf > 1 else g.bytes_per_vec_codes.iloc[0]})
+                r = g.iloc[0]
+                out.append({"ablation": "A3 re-ranking", "dataset": ds,
+                            "setting": f"{name}, nlist={panel_nlist(ds)}, nprobe={npr}, k_factor={kf}",
+                            "recall10": r.recall10, "qps": r.qps,
+                            "bytes_per_vec": r.bytes_per_vec if kf > 1 else r.bytes_per_vec_codes})
         a4 = sp_is(df[(df.experiment == "A4") & (df.dataset == ds)], k_factor=1)
         for (bits, qb), g in a4.groupby([a4.bp.map(lambda p: p["bits"]), a4.sp.map(lambda p: p["qb"])]):
             r16 = g[g.sp.map(lambda p: p["nprobe"]) == min(g.sp.map(lambda p: p["nprobe"]), key=lambda v: abs(v - 16))]
             out.append({"ablation": "A4 RaBitQ bits", "dataset": ds, "setting": f"bits={bits}, qb={qb}, nprobe~16",
                         "recall10": r16.recall10.max(), "qps": r16.qps.max(), "bytes_per_vec": g.bytes_per_vec_codes.iloc[0]})
+        # A5: each graph degree M at the efSearch nearest 64
         h = main[main.method == "hnsw"]
         for M, g in h.groupby(h.bp.map(lambda p: p["M"])):
-            out.append({"ablation": "A5 HNSW degree", "dataset": ds, "setting": f"M={M}",
-                        "recall10": g.recall10.max(), "qps": g[g.recall10 == g.recall10.max()].qps.max(),
-                        "bytes_per_vec": g.bytes_per_vec.iloc[0], "build_s": build_s(g.iloc[0])})
+            ef = int(min(g.sp.map(lambda p: p["efSearch"]).unique(), key=lambda v: abs(v - 64)))
+            r = sp_is(g, efSearch=ef).iloc[0]
+            out.append({"ablation": "A5 HNSW degree", "dataset": ds, "setting": f"M={M}, efSearch={ef}",
+                        "recall10": r.recall10, "qps": r.qps, "bytes_per_vec": r.bytes_per_vec, "build_s": build_s(r)})
     table(pd.DataFrame(out), "T4_ablations")
 
 
@@ -255,13 +265,15 @@ def t5_t6(df):
 @step
 def f1(df):
     fig, axes = plt.subplots(2, 2, figsize=(7.0, 5.6), constrained_layout=True)
+    legend_done = False
     for ax, (ds, qs) in zip(axes.ravel(), PANELS):
         sub = main_rows(df, ds, qs)
         if sub.empty:
             ax.set_visible(False)
             continue
         title = config.DATASETS[ds]["label"] + (" (image queries)" if ds == "coco" else "")
-        frontier_axes(ax, sub, title, legend=(ds == "sift"))
+        frontier_axes(ax, sub, title, legend=not legend_done)
+        legend_done = True
     save(fig, "F1_recall_vs_qps")
 
 
@@ -288,7 +300,7 @@ def f3(df):
         nl = panel_nlist(ds)
         fig, axes = plt.subplots(1, 4, figsize=(9.0, 2.6), constrained_layout=True)
         lsh = sub[sub.method == "lsh"]
-        lsh = lsh[lsh.bp.map(lambda p: p["train_thresholds"])]
+        lsh = lsh[lsh.bp.map(lambda p: p["train_thresholds"]).astype(bool)]
         for i, kf in enumerate(sorted(lsh.sp.map(lambda p: p["k_factor"]).unique())):
             g = sp_is(lsh, k_factor=kf)
             g = g.assign(nb=g.bp.map(lambda p: p["nbits"])).sort_values("nb")
@@ -321,7 +333,7 @@ def f3(df):
 @step
 def f4(df):
     for ds in config.ABLATION_DATASETS:
-        main = main_rows(df, ds, "main")
+        main = main_rows(df, ds, config.primary_qs(ds))
         if main.empty:
             continue
         nl = panel_nlist(ds)
@@ -335,7 +347,8 @@ def f4(df):
                     label="learned thresholds" if tt else "threshold 0")
         ax.set_xscale("log", base=2)
         ax.set(title="A1: LSH thresholds (no re-rank)", xlabel="nbits", ylabel="Recall@10", ylim=(0, 1.02))
-        ax.legend(loc="upper left")
+        if ax.lines:
+            ax.legend(loc="upper left")
 
         ax = axes[0, 1]
         a2 = df[(df.experiment == "A2") & (df.dataset == ds)]
@@ -364,7 +377,8 @@ def f4(df):
                         label=f"{LBL[m]}, k_factor={kf}")
         ax.set_xscale("log", base=2)
         ax.set(title=f"A3: exact re-ranking (nlist={nl})", xlabel="nprobe", ylabel="Recall@10", ylim=(0, 1.02))
-        ax.legend(loc="best", fontsize=6.5)
+        if ax.lines:
+            ax.legend(loc="best", fontsize=6.5)
 
         ax = axes[1, 0]
         a4 = sp_is(df[(df.experiment == "A4") & (df.dataset == ds)], k_factor=1)
@@ -376,7 +390,8 @@ def f4(df):
                 ax.plot(g.np_, g.recall10, color=SEQ[i % 4], linestyle=ls, label=f"{bits}-bit, qb={qb}")
         ax.set_xscale("log", base=2)
         ax.set(title="A4: RaBitQ code and query bits", xlabel="nprobe", ylabel="Recall@10 (no re-rank)", ylim=(0, 1.02))
-        ax.legend(loc="best", fontsize=6, ncol=2)
+        if ax.lines:
+            ax.legend(loc="best", fontsize=6, ncol=2)
 
         ax = axes[1, 1]
         h = main[main.method == "hnsw"]
@@ -387,7 +402,8 @@ def f4(df):
         ax.set_xscale("log", base=2)
         ax.set_yscale("log")
         ax.set(title="A5: HNSW degree, speed side", xlabel="efSearch", ylabel="QPS (log)")
-        ax.legend(loc="upper right")
+        if ax.lines:
+            ax.legend(loc="upper right")
         axes[1, 2].set_visible(False)
         fig.suptitle(f"Ablations on {config.DATASETS[ds]['label']}", x=0.01, ha="left", fontsize=9)
         save(fig, f"F4_ablations_{ds}")
@@ -406,11 +422,13 @@ def f5_f6(df):
         ("F6_build_time", [("train_s", "train"), ("add_s", "add")], "Build time (s, all cores)"),
     ]:
         fig, axes = plt.subplots(1, 4, figsize=(9.0, 2.6), constrained_layout=True)
+        first = None
         for ax, (ds, qs) in zip(axes, PANELS):
             sub = main_rows(df, ds, qs)
             if sub.empty:
                 ax.set_visible(False)
                 continue
+            first = ax if first is None else first
             ms = [m for m in config.METHODS if not sub[sub.method == m].empty]
             picks = {m: _t2_pick(sub[sub.method == m]) for m in ms}
             left = np.zeros(len(ms))
@@ -424,7 +442,8 @@ def f5_f6(df):
             ax.invert_yaxis()
             ax.set(title=config.DATASETS[ds]["label"], xlabel=xlabel)
             ax.grid(axis="y", visible=False)
-        axes[0].legend(loc="lower right", fontsize=6.5)
+        if first is not None:
+            first.legend(loc="lower right", fontsize=6.5)
         fig.suptitle("Configuration with the highest QPS at recall@10 >= 0.90 (highest recall if never reached)",
                      x=0.01, ha="left", fontsize=8, color=MUTED)
         save(fig, name)
@@ -440,7 +459,7 @@ def f7():
     ax.scatter(*pca["i2i"].T, s=3, color=PAIR[0], label="image queries", rasterized=True)
     ax.scatter(*pca["t2i"].T, s=3, color=PAIR[1], label="caption queries", rasterized=True)
     ax.set(title="PCA of CLIP vectors", xlabel="PC 1", ylabel="PC 2")
-    ax.legend(loc="best", markerscale=3, fontsize=6.5)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.28), markerscale=3, fontsize=6.5, ncol=1)
     for ax, col, label in [(axes[1], "cos_1nn", "Cosine to 1st true neighbour"),
                            (axes[2], "rc10", "Relative contrast RC10 (low = hard)"),
                            (axes[3], "centroid_dist", "Distance to nearest IVF centroid")]:
@@ -470,10 +489,10 @@ def f8():
         for ax, (m, p) in zip(axes, files.items()):
             hits = np.load(p)
             ax.scatter(rc, hits + rng.uniform(-0.02, 0.02, len(hits)), s=3, color=C[m], alpha=0.5, rasterized=True)
-            ax.set_xscale("log")
+            ax.xaxis.set_major_locator(matplotlib.ticker.MaxNLocator(4))
             s = summ[(summ.dataset == ds) & (summ.query_set == qs) & (summ.method == m)]
             rho = float(s.spearman_rho_rc10.iloc[0]) if not s.empty else float("nan")
-            ax.set(title=f"{LBL[m]}  (Spearman rho = {rho:.2f})", xlabel="RC10 (log)", ylim=(-0.05, 1.05))
+            ax.set(title=f"{LBL[m]}  (Spearman rho = {rho:.2f})", xlabel="RC10 (low = hard)", ylim=(-0.05, 1.05))
         axes[0].set_ylabel("Per-query recall@10")
         fig.suptitle(f"{config.DATASETS[ds]['label']} {qs}: configs with mean recall near 0.90",
                      x=0.01, ha="left", fontsize=8.5)
@@ -483,6 +502,8 @@ def f8():
 @step
 def f9():
     e6 = pd.read_csv(config.RESULTS / "e6_routing.csv")
+    if "query_set" in e6:
+        e6 = e6[e6.query_set == "t2i"]
     fig, ax = plt.subplots(figsize=(4.0, 3.0), constrained_layout=True)
     for i, (alpha, g) in enumerate(e6.groupby("alpha")):
         ax.plot(g.nprobe, g.recall10, marker="o", color=SEQ[(i + 1) % 4],
@@ -522,18 +543,102 @@ def f11():
     ax.set_xscale("log", base=2)
     ax.set(title="Equal bytes per vector: IVF-RaBitQ / IVF-PQ", xlabel="Dimension", ylabel="QPS ratio at recall@10 = 0.90")
     ax = axes[1]
-    for m, lab in (("pq_refine", "PQ32, exhaustive"), ("ivfpq", "IVF-PQ"), ("ivfrabitq", "IVF-RaBitQ")):
+    for m, lab in E8_LABELS:
         g = sc[(sc.method == m) & (sc.recall10 >= 0.90)]
         if g.empty:
             continue
         best = g.loc[g.groupby("n").qps.idxmax()].sort_values("n")
-        color = C["pq"] if m == "pq_refine" else C[m]
-        ax.plot(best.n, 1000.0 / best.qps, marker=MK["pq" if m == "pq_refine" else m], color=color, label=lab)
+        key = "pq" if m == "pq_refine" else m
+        ax.plot(best.n, 1000.0 / best.qps, marker=MK[key], color=C[key], label=lab)
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set(title="SIFT prefixes: query time at recall@10 = 0.90", xlabel="Database size", ylabel="ms per query (log)")
     ax.legend(loc="upper left")
     save(fig, "F11_dimension_and_scale")
+
+
+E8_LABELS = (("flat", "Exact (Flat)"), ("pq_refine", "PQ32, exhaustive"), ("ivfpq", "IVF-PQ"),
+             ("ivfrabitq", "IVF-RaBitQ"), ("hnsw", "HNSW"))
+
+
+def _e8():
+    sc = pd.read_csv(config.RESULTS / "e8_scaling.csv", dtype={"build_params": str, "search_params": str})
+    sc["n"] = sc.build_params.map(lambda s: json.loads(s)["n_db"])
+    return sc
+
+
+@step
+def f12_t7():
+    """E8: build time and index size against database size; table T7 with the numbers behind F11 and F12."""
+    sc = _e8()
+    rows = []
+    fig, axes = plt.subplots(1, 2, figsize=(7.6, 3.0), constrained_layout=True)
+    for m, lab in E8_LABELS:
+        g = sc[sc.method == m]
+        if g.empty:
+            continue
+        key = "pq" if m == "pq_refine" else m
+        per_n = g.groupby("n").first().sort_index()
+        build = per_n.train_s + per_n.add_s
+        mb = per_n.total_bytes / 1e6
+        axes[0].plot(per_n.index, build, marker=MK[key], color=C[key], label=lab)
+        axes[1].plot(per_n.index, mb, marker=MK[key], color=C[key], label=lab)
+        for n in per_n.index:
+            ok = g[(g.n == n) & (g.recall10 >= 0.90)]
+            b = None if ok.empty else ok.loc[ok.qps.idxmax()]
+            rows.append({"method": lab, "n_db": int(n), "build_s": round(float(build[n]), 2),
+                         "train_s": round(float(per_n.train_s[n]), 2), "add_s": round(float(per_n.add_s[n]), 2),
+                         "index_MB": round(float(mb[n]), 1),
+                         "index_MB_without_raw": round(float(per_n.bytes_per_vec_codes[n] * n / 1e6), 1),
+                         "QPS@0.90": np.nan if b is None else round(float(b.qps)),
+                         "ms_per_query@0.90": np.nan if b is None else round(1000.0 / float(b.qps), 3),
+                         "config@0.90": "not reached" if b is None else b.search_params})
+    d = config.DATASETS["sift"]["dim"]
+    ns = np.array(sorted(sc.n.unique()))
+    axes[1].plot(ns, 4 * d * ns / 1e6, color=MUTED, linestyle=":", linewidth=1.2, label="raw float32 vectors")
+    for ax, title, ylab in ((axes[0], "Build time vs database size", "Build time (s, all cores, log)"),
+                            (axes[1], "Index size vs database size", "Index size incl. re-ranking vectors (MB, log)")):
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set(title=title, xlabel="Database size (SIFT prefix)", ylabel=ylab)
+    handles, labels = axes[1].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="outside lower center", ncol=len(labels), fontsize=7)
+    save(fig, "F12_build_and_memory_scaling")
+    table(pd.DataFrame(rows), "T7_scaling")
+
+
+@step
+def f13(df):
+    """COCO: where IVF recall is lost. IVF-Flat scores the probed cells exactly, so its recall is the routing
+    ceiling; the gap down to IVF-PQ / IVF-RaBitQ at the same nprobe is lost to compressed distance estimates."""
+    e6 = pd.read_csv(config.RESULTS / "e6_routing.csv")
+    if "query_set" not in e6:
+        e6 = e6.assign(query_set="t2i")
+    nl = config.SMALL_NLIST
+    fig, axes = plt.subplots(1, 2, figsize=(7.6, 3.0), constrained_layout=True, sharey=True)
+    for ax, qs, title in ((axes[0], "i2i", "Image queries (I2I)"), (axes[1], "t2i", "Caption queries (T2I)")):
+        ceil = e6[(e6.query_set == qs) & (e6.alpha == 0)].sort_values("nprobe")
+        if not ceil.empty:                               # wide pale band underneath, so lines that reach it stay visible
+            ax.plot(ceil.nprobe, ceil.recall10, color=C["flat"], linewidth=7, alpha=0.3, solid_capstyle="round",
+                    zorder=1, label="routing ceiling (IVF-Flat)")
+        sub = main_rows(df, "coco", qs)
+        kf = max(config.KFACTORS)
+        lines = [("ivfpq", {"M": max(config.PQ_MS) if not config.SMOKE else config.PQ_MS[0]}, "IVF-PQ"),
+                 ("ivfrabitq", {"bits": 1}, "IVF-RaBitQ 1-bit"), ("ivfrabitq", {"bits": 4}, "IVF-RaBitQ 4-bit")]
+        for i, (m, extra, lab) in enumerate(lines):
+            g = sp_is(bp_is(sub[sub.method == m], nlist=nl, **extra), k_factor=kf)
+            if g.empty:
+                continue
+            g = g.assign(np_=g.sp.map(lambda p: p["nprobe"])).sort_values("np_")
+            name = f"{lab} (M={extra['M']})" if m == "ivfpq" else lab
+            hollow = i == 2                              # 4-bit RaBitQ: same hue, dashed line, hollow markers
+            ax.plot(g.np_, g.recall10, color=C[m], marker=MK[m], linestyle="--" if hollow else "-",
+                    markerfacecolor="white" if hollow else C[m], label=f"{name}, k_factor={kf}")
+        ax.set_xscale("log", base=2)
+        ax.set(title=f"{title}, nlist={nl}", xlabel="nprobe", ylim=(0, 1.02))
+    axes[0].set_ylabel("Recall@10")
+    axes[0].legend(loc="lower right", fontsize=6.5)
+    save(fig, "F13_routing_vs_codes")
 
 
 def main():
@@ -555,6 +660,8 @@ def main():
     f9()
     f10()
     f11()
+    f12_t7()
+    f13(df)
 
 
 if __name__ == "__main__":

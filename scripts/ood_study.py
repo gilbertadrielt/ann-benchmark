@@ -4,7 +4,9 @@ The I2I vs T2I benchmark rows themselves come from run_bench (same cached indexe
 two query sets). This script adds what explains them:
   results/ood/diagnostics.csv      per query: set, cosine to 1st neighbour, RC10, distance to nearest IVF centroid
   results/ood/pca.npz              2-D PCA of 5,000 database vectors, 1,000 image and 1,000 caption queries
-  results/e6_routing.csv           recall@10 vs nprobe for routing shifts alpha in {0, 0.5, 1}
+  results/e6_routing.csv           recall@10 vs nprobe of an exact-scoring IVF index: caption queries with
+                                   routing shifts alpha in {0, 0.5, 1}, and image queries with alpha = 0.
+                                   At alpha = 0 this is the routing ceiling every IVF method is bounded by.
 
 E6: a caption query is shifted by the mean image-minus-caption offset ONLY when choosing
 which IVF cells to scan; distances are still computed with the original query. The offset is
@@ -58,24 +60,27 @@ def main():
     np.savez(out / "pca.npz", db=pca.transform(sample), i2i=pca.transform(xq["i2i"][:n_show]),
              t2i=pca.transform(xq["t2i"][:n_show]), explained=pca.explained_variance_ratio_)
 
-    # ---- E6 gap-corrected routing
+    # ---- E6 gap-corrected routing, plus the routing ceiling for both query sets.
+    # IVF-Flat scores every vector in the probed cells exactly, so its recall at a given nprobe is
+    # the share of true neighbours that routing reaches: the most any IVF method can get there.
     gap = np.asarray(xb).mean(0) - calib.mean(0)       # image mean minus caption mean (calibration rows only)
-    q = xq["t2i"]
-    gt_D = gt["t2i"][1]
     res = []
-    for alpha in config.E6_ALPHAS:
-        q_route = np.ascontiguousarray(q + alpha * gap, dtype=np.float32)
-        faiss.normalize_L2(q_route)
-        for nprobe in config.E6_NPROBES:
-            if nprobe > ivf.nlist:
-                continue
-            ivf.nprobe = nprobe                         # search_preassigned checks Iq has nprobe columns
-            _, Iq = ivf.quantizer.search(q_route, nprobe)          # cells chosen with the shifted query
-            Dq = ((q[:, None, :] - centroids[Iq]) ** 2).sum(-1).astype(np.float32)
-            _, I = ivf.search_preassigned(q, config.K, Iq, Dq)     # scored with the original query
-            r = float(recall_hits(I, q, xb, gt_D).mean())
-            res.append({"alpha": alpha, "nprobe": nprobe, "recall10": r})
-            print(f"  E6 alpha={alpha:.1f} nprobe={nprobe:3d} recall={r:.3f}")
+    for qs, alphas in (("t2i", config.E6_ALPHAS), ("i2i", [0.0])):
+        q = xq[qs]
+        gt_D = gt[qs][1]
+        for alpha in alphas:
+            q_route = np.ascontiguousarray(q + alpha * gap, dtype=np.float32)
+            faiss.normalize_L2(q_route)
+            for nprobe in config.E6_NPROBES + [128, 256]:
+                if nprobe > ivf.nlist:
+                    continue
+                ivf.nprobe = nprobe                         # search_preassigned checks Iq has nprobe columns
+                _, Iq = ivf.quantizer.search(q_route, nprobe)          # cells chosen with the shifted query
+                Dq = ((q[:, None, :] - centroids[Iq]) ** 2).sum(-1).astype(np.float32)
+                _, I = ivf.search_preassigned(q, config.K, Iq, Dq)     # scored with the original query
+                r = float(recall_hits(I, q, xb, gt_D).mean())
+                res.append({"query_set": qs, "alpha": alpha, "nprobe": nprobe, "recall10": r})
+                print(f"  E6 {qs} alpha={alpha:.1f} nprobe={nprobe:3d} recall={r:.3f}")
     pd.DataFrame(res).to_csv(config.RESULTS / "e6_routing.csv", index=False)
 
 

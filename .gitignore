@@ -1,0 +1,8 @@
+# large or machine-specific files: never commit
+data/
+indexes/
+smoke/
+.venv/
+__pycache__/
+*.part
+*.tmp

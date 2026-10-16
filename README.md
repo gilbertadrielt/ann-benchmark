@@ -17,6 +17,10 @@ The real run is resumable: if it stops, run `python run_all.py --from <stage>`
 (the failing stage is printed), and finished work is skipped.
 Run the final timed run on one machine, plugged in, with other apps closed.
 
+On Intel chips with performance and efficiency cores (12th gen and later), run
+`python -m scripts.cpu_check` once and add the `--cpus` option it prints to every
+`run_all.py` command, so timed runs stay on the fast cores (Windows and Linux only).
+
 ## Stages
 
 | Stage | Script | Output |
