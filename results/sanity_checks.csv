@@ -1,0 +1,4 @@
+dataset,query_set,check,value,pass,note
+sift,main,agreement with provided top-10,0.9994,True,
+sift,main,self-match at distance 0,0.0,True,
+sift,main,queries with a tie at rank 10/11,27.0,True,

@@ -1,0 +1,125 @@
+SIFT1M benchmark report
+
+Generated from results/sift.csv; rerun with venv/bin/python -m scripts.sift_report.
+
+339 measured search configurations, 27 distinct builds, all five configured algorithms.
+Grid coverage under the repository's recall/plateau stopping rules: complete.
+Dataset: 1,000,000 unnormalised 128-dimensional vectors, squared L2 distance,
+2,000 evaluation queries, top-10 results. Machine: Apple M4 | 10 threads | 17 GB | Darwin.
+Faiss 1.15.1; recorded measurement dates: 2026-10-14T01:41:10 to 2026-10-14T02:07:42.
+
+Complete comparison plots: plots/all_comparisons.pdf (PNG and individual PDF files in plots/)
+
+Measurement interpretation
+
+Recall is the repository's tie-aware recall@10, with a relative distance tolerance of 1e-4.
+Search uses one Faiss/BLAS thread, a warm-up, and up to three timed batches; the best batch time is retained.
+Latency is batch duration divided by query count, not individually timed request latency or p95/p99.
+Build uses 10 configured threads. Build time is recorded training plus insertion of the base index;
+it excludes serialization, loading and construction of the refinement wrapper. Cached build times are reused across searches.
+Memory uses serialized base-index size plus float32 raw vectors for refinement (512 MB here);
+it excludes process/runtime overhead, temporary buffers and training peak RAM. Flat uses raw-vector size.
+LSH, IVF-PQ and IVF-RaBitQ all include exact reranking, including its search cost and retained vectors.
+Consequently small compressed codes do not imply small total resident memory in this experiment.
+Threshold comparisons choose the fastest measured configuration meeting each target independently;
+actual recall may overshoot, and selections can use different builds. No interpolation or extrapolation is used.
+Stopping rules truncate sweeps at recall ≥ 0.999 or two gains below 0.001; these are measured-grid results,
+not proofs of global optimality. Close timing differences have no confidence intervals.
+
+Figure: Recall versus latency (recall_latency.png)
+
+Figure: Memory and build comparison (memory_build.png)
+Fastest measured configuration at recall ≥ 90%
+
++--------------+-----------+------------+------------+-----------------+----------+----------+----------+
+| Algorithm    | Recall@10 | Latency ms | QPS        | Speedup vs Flat | Base MB  | Total MB | Build s  |
++--------------+-----------+------------+------------+-----------------+----------+----------+----------+
+| Exact (Flat) | 1.0000    | 0.5536     | 1806.2136  | 1.0000          | 512.0000 | 512.0000 | 0.1066   |
+| LSH          | 0.9423    | 1.2735     | 785.2161   | 0.4347          | 32.1322  | 544.1322 | 1.2073   |
+| IVF-PQ       | 0.9120    | 0.1099     | 9099.3777  | 5.0378          | 26.2612  | 538.2612 | 14.8757  |
+| HNSW         | 0.9396    | 0.0982     | 10182.0595 | 5.6372          | 912.0812 | 912.0812 | 139.1127 |
+| IVF-RaBitQ   | 0.9103    | 0.1141     | 8767.6149  | 4.8541          | 34.1957  | 546.1957 | 13.0205  |
++--------------+-----------+------------+------------+-----------------+----------+----------+----------+
+
+Parameters for the configurations above:
+
++--------------+------------------------------------------+-----------------------------------------+
+| Algorithm    | Build parameters                         | Search parameters                       |
++--------------+------------------------------------------+-----------------------------------------+
+| Exact (Flat) | {}                                       | {}                                      |
+| LSH          | {"nbits": 256, "train_thresholds": true} | {"k_factor": 64}                        |
+| IVF-PQ       | {"M": 16, "nlist": 4096}                 | {"k_factor": 16, "nprobe": 32}          |
+| HNSW         | {"M": 48, "efC": 200}                    | {"efSearch": 32}                        |
+| IVF-RaBitQ   | {"bits": 1, "nlist": 4096}               | {"k_factor": 16, "nprobe": 32, "qb": 4} |
++--------------+------------------------------------------+-----------------------------------------+
+
+Fastest measured configuration at recall ≥ 95%
+
++--------------+-----------+------------+-----------+-----------------+----------+----------+---------+
+| Algorithm    | Recall@10 | Latency ms | QPS       | Speedup vs Flat | Base MB  | Total MB | Build s |
++--------------+-----------+------------+-----------+-----------------+----------+----------+---------+
+| Exact (Flat) | 1.0000    | 0.5536     | 1806.2136 | 1.0000          | 512.0000 | 512.0000 | 0.1066  |
+| LSH          | 0.9778    | 1.6740     | 597.3842  | 0.3307          | 64.2622  | 576.2622 | 0.8311  |
+| IVF-PQ       | 0.9646    | 0.1732     | 5772.6264 | 3.1960          | 26.2612  | 538.2612 | 14.8757 |
+| HNSW         | 0.9638    | 0.1116     | 8958.6268 | 4.9599          | 656.2584 | 656.2584 | 55.1190 |
+| IVF-RaBitQ   | 0.9606    | 0.1850     | 5406.1749 | 2.9931          | 34.1957  | 546.1957 | 13.0205 |
++--------------+-----------+------------+-----------+-----------------+----------+----------+---------+
+
+Parameters for the configurations above:
+
++--------------+-------------------------------------------+-----------------------------------------+
+| Algorithm    | Build parameters                          | Search parameters                       |
++--------------+-------------------------------------------+-----------------------------------------+
+| Exact (Flat) | {}                                        | {}                                      |
+| LSH          | {"nbits": 512, "train_thresholds": false} | {"k_factor": 64}                        |
+| IVF-PQ       | {"M": 16, "nlist": 4096}                  | {"k_factor": 16, "nprobe": 64}          |
+| HNSW         | {"M": 16, "efC": 200}                     | {"efSearch": 64}                        |
+| IVF-RaBitQ   | {"bits": 1, "nlist": 4096}                | {"k_factor": 16, "nprobe": 64, "qb": 4} |
++--------------+-------------------------------------------+-----------------------------------------+
+
+Fastest measured configuration at recall ≥ 99%
+
++--------------+-----------+------------+-----------+-----------------+----------+----------+----------+
+| Algorithm    | Recall@10 | Latency ms | QPS       | Speedup vs Flat | Base MB  | Total MB | Build s  |
++--------------+-----------+------------+-----------+-----------------+----------+----------+----------+
+| Exact (Flat) | 1.0000    | 0.5536     | 1806.2136 | 1.0000          | 512.0000 | 512.0000 | 0.1066   |
+| LSH          | 0.9985    | 3.4085     | 293.3835  | 0.1624          | 128.5244 | 640.5244 | 1.7120   |
+| IVF-PQ       | 0.9909    | 0.4583     | 2181.9988 | 1.2081          | 42.2612  | 554.2612 | 15.7131  |
+| HNSW         | 0.9957    | 0.2925     | 3419.1763 | 1.8930          | 912.0812 | 912.0812 | 139.1127 |
+| IVF-RaBitQ   | 0.9911    | 0.4065     | 2460.0295 | 1.3620          | 94.1957  | 606.1957 | 14.4185  |
++--------------+-----------+------------+-----------+-----------------+----------+----------+----------+
+
+Parameters for the configurations above:
+
++--------------+--------------------------------------------+-----------------------------------------+
+| Algorithm    | Build parameters                           | Search parameters                       |
++--------------+--------------------------------------------+-----------------------------------------+
+| Exact (Flat) | {}                                         | {}                                      |
+| LSH          | {"nbits": 1024, "train_thresholds": false} | {"k_factor": 64}                        |
+| IVF-PQ       | {"M": 32, "nlist": 4096}                   | {"k_factor": 16, "nprobe": 128}         |
+| HNSW         | {"M": 48, "efC": 200}                      | {"efSearch": 128}                       |
+| IVF-RaBitQ   | {"bits": 4, "nlist": 4096}                 | {"k_factor": 4, "nprobe": 128, "qb": 4} |
++--------------+--------------------------------------------+-----------------------------------------+
+
+Findings and algorithm trade-offs
+
+- HNSW has the lowest measured latency at all three recall targets (90%, 95%, 99%). At 95%, HNSW M16 / efSearch=64 delivers 0.96375 recall in 0.11162 ms, about 4.96× faster than Flat, using 656.26 MB and a 55.12 s base build.
+- IVF-PQ is the strongest measured compromise at 90–95% recall when memory and build cost matter. At 95%, M16 / nlist=4096 / nprobe=64 / k_factor=16 achieves 0.96465 recall in 0.17323 ms, with 538.26 MB and a 14.88 s build. HNSW is about 1.55× faster but uses 118 MB more and takes about 3.71× longer to build at these selected operating points.
+- IVF-RaBitQ at 95% reaches 0.96055 recall in 0.18497 ms with 546.20 MB and a 13.02 s build. IVF-PQ is slightly faster with less memory here, while RaBitQ builds faster. At 99%, RaBitQ's best measured latency (0.40650 ms) beats IVF-PQ (0.45830 ms), but uses more memory (606.20 versus 554.26 MB).
+- Exact Flat guarantees full recall, has the lowest estimated resident index size (512 MB), and the quickest recorded build (0.107 s). Its search costs 0.55364 ms/query. It is attractive for exactness or frequent rebuilds; ANN amortizes a larger build cost over searches.
+- LSH is slower than Flat at every selected recall target: 1.27353, 1.67396 and 3.40851 ms at 90%, 95% and 99%. It builds quickly, but exhaustive Hamming scans and reranking make it uncompetitive on this SIFT1M run.
+- Increasing HNSW efSearch or IVF nprobe generally buys recall at additional search cost. More graph links increase HNSW memory/build cost; more code bits/subquantizers increase compressed-index memory. Larger reranking candidate pools improve recall while increasing exact-distance work.
+
+There is no single winner across all metrics: HNSW wins measured query speed; IVF-PQ balances speed, memory and build time around 95%; Flat wins exactness, build time and total index size in this reranking setup. These conclusions apply to this machine, query set and grid. PQ-only and IVF-Flat are extra experiment implementations without SIFT measurements in this CSV and are not ranked.
+
+Build and memory ranges across every measured build
+
++-----------+-------------+-------------+---------------+---------------+
+| method    | build_min_s | build_max_s | memory_min_MB | memory_max_MB |
++-----------+-------------+-------------+---------------+---------------+
+| flat      | 0.1066      | 0.1066      | 512.0000      | 512.0000      |
+| hnsw      | 39.2249     | 139.1127    | 592.5667      | 912.0812      |
+| ivfpq     | 6.3469      | 17.7897     | 536.6637      | 586.2612      |
+| ivfrabitq | 3.6195      | 14.4185     | 544.5983      | 606.1957      |
+| lsh       | 0.0613      | 11.8004     | 520.0329      | 769.0569      |
++-----------+-------------+-------------+---------------+---------------+

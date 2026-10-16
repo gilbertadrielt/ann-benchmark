@@ -1,0 +1,2 @@
+dataset,label,query_set,n_db,dim,n_queries,metric,raw_size_mb,subsampled,rc10_median,rc10_q25,rc10_q75
+sift,SIFT1M,main,1000000,128,2000,l2,512,False,2.3120017051696777,2.0952394008636475,2.6705896854400635
